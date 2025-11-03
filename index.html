@@ -73,6 +73,7 @@
                 unavailableDays: [],
                 unavailableSlots: [],
                 maxPerDay: 2,
+                daysPerWeek: 1,
                 canCombineWith: [],
               }
             }
@@ -154,6 +155,7 @@
                   unavailableDays: [],
                   unavailableSlots: [],
                   maxPerDay: 2,
+                  daysPerWeek: 1,
                   canCombineWith: [],
                 }
               }]);
@@ -252,6 +254,20 @@
             return { conflicts, warnings };
           };
 
+          const getSubjectScheduleSummary = (subjectId) => {
+            const uniqueDays = new Set();
+            Object.entries(schedule).forEach(([key, value]) => {
+              if (value.subjectId === subjectId) {
+                const parts = key.split('-');
+                uniqueDays.add(parts[1]);
+              }
+            });
+            return {
+              scheduledDays: uniqueDays.size,
+              days: Array.from(uniqueDays)
+            };
+          };
+
           const handleDrop = (classroomId, day, slotId) => {
             if (!draggedSubject) return;
             
@@ -319,7 +335,7 @@
             const data = [
               ['ID', 'Subject', 'Teacher', 'Group/Class', 'Color', 'Required Days', 'Required Time Slots', 'Required Classroom', 
                'Preferred Days', 'Preferred Time Slots', 'Preferred Classroom', 'Unavailable Days', 'Unavailable Time Slots', 
-               'Max Per Day', 'Can Combine With'],
+               'Max Per Day', 'Days Per Week', 'Can Combine With'],
               ...subjects.map(s => [
                 s.id,
                 s.name,
@@ -335,6 +351,7 @@
                 s.constraints.unavailableDays.join(';'),
                 s.constraints.unavailableSlots.join(';'),
                 s.constraints.maxPerDay,
+                s.constraints.daysPerWeek,
                 s.constraints.canCombineWith.join(';')
               ])
             ];
@@ -438,7 +455,8 @@
                     unavailableDays: row[11] ? row[11].split(';').filter(Boolean) : [],
                     unavailableSlots: row[12] ? row[12].split(';').map(Number).filter(Boolean) : [],
                     maxPerDay: parseInt(row[13]) || 2,
-                    canCombineWith: row[14] ? row[14].split(';').map(Number).filter(Boolean) : []
+                    daysPerWeek: parseInt(row[14]) || 1,
+                    canCombineWith: row[15] ? row[15].split(';').map(Number).filter(Boolean) : []
                   }
                 }));
                 setSubjects(imported);
@@ -663,20 +681,32 @@
                         <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                           <h3 className="font-semibold text-indigo-900 mb-3">Available Subjects</h3>
                           <div className="flex flex-wrap gap-2">
-                            {subjects.map(subject => (
+                            {subjects.map(subject => {
+                              const summary = getSubjectScheduleSummary(subject.id);
+                              const isComplete = summary.scheduledDays >= subject.constraints.daysPerWeek;
+                              const isIncomplete = summary.scheduledDays < subject.constraints.daysPerWeek;
+                              
+                              return (
                               <div
                                 key={subject.id}
                                 draggable
                                 onDragStart={() => setDraggedSubject(subject)}
                                 onDragEnd={() => setDraggedSubject(null)}
-                                className="px-4 py-2 rounded-lg text-white font-medium cursor-move shadow-md hover:shadow-lg transition"
+                                className="px-4 py-2 rounded-lg text-white font-medium cursor-move shadow-md hover:shadow-lg transition relative"
                                 style={{ backgroundColor: subject.color }}
                               >
                                 <div className="text-sm font-semibold">{subject.name}</div>
                                 <div className="text-xs opacity-90">{subject.teacher}</div>
                                 {subject.group && <div className="text-xs opacity-75">{subject.group}</div>}
+                                <div className="text-xs mt-1 flex items-center gap-1">
+                                  {isComplete ? (
+                                    <span className="bg-green-500 bg-opacity-30 px-1 rounded">✓ {summary.scheduledDays}/{subject.constraints.daysPerWeek} days</span>
+                                  ) : (
+                                    <span className="bg-yellow-500 bg-opacity-30 px-1 rounded">⚠ {summary.scheduledDays}/{subject.constraints.daysPerWeek} days</span>
+                                  )}
+                                </div>
                               </div>
-                            ))}
+                            )})}
                           </div>
                           <p className="text-sm text-indigo-700 mt-3">Drag subjects onto the schedule grid below</p>
                         </div>
@@ -1099,11 +1129,12 @@
                           <h3 className="font-semibold text-blue-900 mb-2 text-sm">CSV Import Format</h3>
                           <p className="text-sm text-blue-800 mb-2">For basic import, your CSV should have these columns (first 4 are required):</p>
                           <div className="bg-white rounded p-2 font-mono text-xs overflow-x-auto">
-                            <div>ID,Subject,Teacher,Group/Class,Color,Required Days,Required Time Slots,...</div>
-                            <div>1,Mathematics,Mr. Smith,Grade 10A,#3b82f6,Monday;Wednesday,,,,,,,2,</div>
+                            <div>ID,Subject,Teacher,Group/Class,Color,Required Days,...,Max Per Day,Days Per Week,...</div>
+                            <div>1,Mathematics,Mr. Smith,Grade 10A,#3b82f6,Monday;Wednesday,,,,,,,2,3,</div>
                           </div>
                           <p className="text-sm text-blue-800 mt-2">
-                            <strong>Quick tip:</strong> For simple imports, just use 3 columns: Subject, Teacher, Group/Class
+                            <strong>Quick tip:</strong> For simple imports, just use 3 columns: Subject, Teacher, Group/Class<br/>
+                            <strong>Days Per Week:</strong> Column 15 - How many different days per week this subject must be scheduled (default: 1)
                           </p>
                         </div>
 
@@ -1371,6 +1402,26 @@
                                             })}
                                             className="border border-gray-300 rounded px-3 py-1 w-20"
                                           />
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Required days per week:
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="5"
+                                            value={subject.constraints.daysPerWeek}
+                                            onChange={(e) => updateSubjectConstraints(subject.id, {
+                                              ...subject.constraints,
+                                              daysPerWeek: parseInt(e.target.value) || 1
+                                            })}
+                                            className="border border-gray-300 rounded px-3 py-1 w-20"
+                                          />
+                                          <p className="text-xs text-gray-600 mt-1">
+                                            How many different days this subject must be scheduled each week
+                                          </p>
                                         </div>
 
                                         <div>
