@@ -369,8 +369,15 @@
           const importFromCSV = (file, type) => {
             const reader = new FileReader();
             reader.onload = (e) => {
-              const text = e.target.result;
+              let text = e.target.result;
+              
+              // Normalize line endings (handle Windows, Mac, Linux, Google Sheets)
+              text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+              
               const rows = text.split('\n').map(row => {
+                // Skip empty rows
+                if (!row.trim()) return [];
+                
                 const cells = [];
                 let cell = '';
                 let inQuotes = false;
@@ -378,7 +385,13 @@
                 for (let i = 0; i < row.length; i++) {
                   const char = row[i];
                   if (char === '"') {
-                    inQuotes = !inQuotes;
+                    if (inQuotes && row[i + 1] === '"') {
+                      // Handle escaped quotes ("")
+                      cell += '"';
+                      i++; // Skip next quote
+                    } else {
+                      inQuotes = !inQuotes;
+                    }
                   } else if (char === ',' && !inQuotes) {
                     cells.push(cell.trim());
                     cell = '';
@@ -388,7 +401,7 @@
                 }
                 cells.push(cell.trim());
                 return cells;
-              }).filter(row => row.some(cell => cell));
+              }).filter(row => row.length > 0 && row.some(cell => cell));
 
               if (rows.length < 2) return;
 
@@ -802,6 +815,18 @@
                               Add Subject
                             </button>
                           </div>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                          <h3 className="font-semibold text-blue-900 mb-2 text-sm">CSV Import Format</h3>
+                          <p className="text-sm text-blue-800 mb-2">For basic import, your CSV should have these columns (first 4 are required):</p>
+                          <div className="bg-white rounded p-2 font-mono text-xs overflow-x-auto">
+                            <div>ID,Subject,Teacher,Group/Class,Color,Required Days,Required Time Slots,...</div>
+                            <div>1,Mathematics,Mr. Smith,Grade 10A,#3b82f6,Monday;Wednesday,,,,,,,2,</div>
+                          </div>
+                          <p className="text-sm text-blue-800 mt-2">
+                            <strong>Quick tip:</strong> For simple imports, just use 3 columns: Subject, Teacher, Group/Class
+                          </p>
                         </div>
 
                         <div className="space-y-4">
