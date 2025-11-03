@@ -89,6 +89,7 @@
           });
           const [editingSubject, setEditingSubject] = useState(null);
           const [draggedSubject, setDraggedSubject] = useState(null);
+          const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'kanban'
 
           const addClassroom = () => {
             if (newClassroom.trim()) {
@@ -593,7 +594,23 @@
                     {activeTab === 'schedule' && (
                       <div>
                         <div className="mb-6 flex justify-between items-center flex-wrap gap-3">
-                          <h2 className="text-xl font-bold text-gray-800">Weekly Schedule</h2>
+                          <div className="flex items-center gap-3">
+                            <h2 className="text-xl font-bold text-gray-800">Weekly Schedule</h2>
+                            <div className="flex bg-gray-200 rounded-lg p-1">
+                              <button
+                                onClick={() => setViewMode('grid')}
+                                className={'px-3 py-1 rounded text-sm font-medium transition ' + (viewMode === 'grid' ? 'bg-white shadow' : 'text-gray-600 hover:text-gray-900')}
+                              >
+                                Grid View
+                              </button>
+                              <button
+                                onClick={() => setViewMode('kanban')}
+                                className={'px-3 py-1 rounded text-sm font-medium transition ' + (viewMode === 'kanban' ? 'bg-white shadow' : 'text-gray-600 hover:text-gray-900')}
+                              >
+                                Kanban View
+                              </button>
+                            </div>
+                          </div>
                           <div className="flex gap-2 flex-wrap">
                             <button
                               onClick={() => {
@@ -664,6 +681,9 @@
                           <p className="text-sm text-indigo-700 mt-3">Drag subjects onto the schedule grid below</p>
                         </div>
 
+                        {viewMode === 'grid' ? (
+                          // Grid View (existing table layout)
+                          <>
                         {classrooms.map(classroom => (
                           <div key={classroom.id} className="mb-8">
                             <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
@@ -749,6 +769,160 @@
                             </div>
                           </div>
                         ))}
+                        </>
+                        ) : (
+                          // Kanban View (by day and time slot)
+                          <div className="space-y-6">
+                            {/* By Day Kanban */}
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-800 mb-3">Schedule by Day</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                {DAYS.map(day => {
+                                  const daySchedule = Object.entries(schedule).filter(([key]) => {
+                                    const parts = key.split('-');
+                                    return parts[1] === day;
+                                  });
+
+                                  return (
+                                    <div key={day} className="bg-white border-2 border-gray-200 rounded-lg p-4">
+                                      <h4 className="font-bold text-gray-800 mb-3 text-center border-b pb-2">
+                                        {day}
+                                      </h4>
+                                      <div className="space-y-2">
+                                        {timeSlots.map(slot => {
+                                          const slotClasses = daySchedule.filter(([key]) => {
+                                            const parts = key.split('-');
+                                            return parts[2] === String(slot.id);
+                                          });
+
+                                          return (
+                                            <div key={slot.id} className="border border-gray-200 rounded p-2 bg-gray-50">
+                                              <div className="text-xs font-semibold text-gray-600 mb-1">
+                                                {slot.start} - {slot.end}
+                                              </div>
+                                              {slotClasses.length > 0 ? (
+                                                <div className="space-y-1">
+                                                  {slotClasses.map(([key, value]) => {
+                                                    const parts = key.split('-');
+                                                    const classroomId = parseInt(parts[0]);
+                                                    const classroom = classrooms.find(c => c.id === classroomId);
+                                                    
+                                                    return (
+                                                      <div
+                                                        key={key}
+                                                        className="p-2 rounded text-white text-xs relative"
+                                                        style={{ backgroundColor: value.color }}
+                                                      >
+                                                        <button
+                                                          onClick={() => removeScheduleItem(classroomId, day, slot.id)}
+                                                          className="absolute top-0.5 right-0.5 bg-white bg-opacity-30 hover:bg-opacity-50 rounded p-0.5"
+                                                        >
+                                                          <Icon name="Trash2" size={10} />
+                                                        </button>
+                                                        <div className="font-semibold">{value.subjectName}</div>
+                                                        <div className="opacity-90">{value.teacher}</div>
+                                                        {value.group && <div className="opacity-75">{value.group}</div>}
+                                                        <div className="opacity-75 mt-1">📍 {classroom?.name}</div>
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              ) : (
+                                                <div className="text-xs text-gray-400 italic text-center py-1">
+                                                  No classes
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* By Time Slot Kanban */}
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-800 mb-3">Schedule by Time Slot</h3>
+                              <div className="space-y-4">
+                                {timeSlots.map(slot => {
+                                  const slotSchedule = Object.entries(schedule).filter(([key]) => {
+                                    const parts = key.split('-');
+                                    return parts[2] === String(slot.id);
+                                  });
+
+                                  return (
+                                    <div key={slot.id} className="bg-white border-2 border-gray-200 rounded-lg p-4">
+                                      <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                        <Icon name="Calendar" size={18} />
+                                        {slot.start} - {slot.end}
+                                        <span className="text-sm font-normal text-gray-600">
+                                          ({slotSchedule.length} {slotSchedule.length === 1 ? 'class' : 'classes'})
+                                        </span>
+                                      </h4>
+                                      
+                                      {slotSchedule.length > 0 ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                          {DAYS.map(day => {
+                                            const dayClasses = slotSchedule.filter(([key]) => {
+                                              const parts = key.split('-');
+                                              return parts[1] === day;
+                                            });
+
+                                            return (
+                                              <div key={day} className="border border-gray-200 rounded p-2 bg-gray-50">
+                                                <div className="text-xs font-semibold text-gray-600 mb-2 text-center">
+                                                  {day}
+                                                </div>
+                                                {dayClasses.length > 0 ? (
+                                                  <div className="space-y-1">
+                                                    {dayClasses.map(([key, value]) => {
+                                                      const parts = key.split('-');
+                                                      const classroomId = parseInt(parts[0]);
+                                                      const classroom = classrooms.find(c => c.id === classroomId);
+                                                      
+                                                      return (
+                                                        <div
+                                                          key={key}
+                                                          className="p-2 rounded text-white text-xs relative"
+                                                          style={{ backgroundColor: value.color }}
+                                                        >
+                                                          <button
+                                                            onClick={() => removeScheduleItem(classroomId, day, slot.id)}
+                                                            className="absolute top-0.5 right-0.5 bg-white bg-opacity-30 hover:bg-opacity-50 rounded p-0.5"
+                                                          >
+                                                            <Icon name="Trash2" size={10} />
+                                                          </button>
+                                                          <div className="font-semibold">{value.subjectName}</div>
+                                                          <div className="opacity-90">{value.teacher}</div>
+                                                          {value.group && <div className="opacity-75">{value.group}</div>}
+                                                          <div className="opacity-75 mt-1">📍 {classroom?.name}</div>
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                ) : (
+                                                  <div className="text-xs text-gray-400 italic text-center py-2">
+                                                    Free
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <div className="text-center text-gray-500 py-4">
+                                          No classes scheduled during this time slot
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
