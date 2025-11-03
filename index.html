@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Schedule Coordinator</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState } = React;
+        const { Plus, Trash2, AlertCircle, Calendar, Download, Upload, FileSpreadsheet } = lucide;
+
+        const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+        function SchoolScheduler() {
+          const [classrooms, setClassrooms] = useState([
+            { id: 1, name: 'Room 101' },
+            { id: 2, name: 'Room 102' }
+          ]);
+          
+          const [timeSlots, setTimeSlots] = useState([
+            { id: 1, start: '08:00', end: '09:00' },
+            { id: 2, start: '09:00', end: '10:00' },
+            { id: 3, start: '10:00', end: '11:00' },
+            { id: 4, start: '11:00', end: '12:00' }
+          ]);
+          
+          const [subjects, setSubjects] = useState([
+            { 
+              id: 1, 
+              name: 'Mathematics', 
+              teacher: 'Mr. Smith',
+              group: 'Grade 10A',
+              color: '#3b82f6',
+              constraints: {
+                requiredDays: [],
+                requiredSlots: [],
+                requiredClassroom: null,
+                preferredDays: [],
+                preferredSlots: [],
+                preferredClassroom: null,
+                unavailableDays: [],
+                unavailableSlots: [],
+                maxPerDay: 2,
+                canCombineWith: [],
+              }
+            }
+          ]);
+          
+          const [schedule, setSchedule] = useState({});
+          const [activeTab, setActiveTab] = useState('schedule');
+          const [newClassroom, setNewClassroom] = useState('');
+          const [newSubject, setNewSubject] = useState({ 
+            name: '', 
+            teacher: '', 
+            group: '',
+            color: '#3b82f6' 
+          });
+          const [editingSubject, setEditingSubject] = useState(null);
+          const [draggedSubject, setDraggedSubject] = useState(null);
+
+          const addClassroom = () => {
+            if (newClassroom.trim()) {
+              setClassrooms([...classrooms, { 
+                id: Date.now(), 
+                name: newClassroom.trim() 
+              }]);
+              setNewClassroom('');
+            }
+          };
+
+          const removeClassroom = (id) => {
+            setClassrooms(classrooms.filter(c => c.id !== id));
+            const newSchedule = { ...schedule };
+            Object.keys(newSchedule).forEach(key => {
+              if (key.startsWith(`${id}-`)) {
+                delete newSchedule[key];
+              }
+            });
+            setSchedule(newSchedule);
+          };
+
+          const addTimeSlot = () => {
+            const lastSlot = timeSlots[timeSlots.length - 1];
+            const newStart = lastSlot ? lastSlot.end : '08:00';
+            const [hours, mins] = newStart.split(':').map(Number);
+            const newEnd = `${String(hours + 1).padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+            
+            setTimeSlots([...timeSlots, { 
+              id: Date.now(), 
+              start: newStart, 
+              end: newEnd 
+            }]);
+          };
+
+          const removeTimeSlot = (id) => {
+            setTimeSlots(timeSlots.filter(t => t.id !== id));
+            const newSchedule = { ...schedule };
+            Object.keys(newSchedule).forEach(key => {
+              if (key.endsWith(`-${id}`)) {
+                delete newSchedule[key];
+              }
+            });
+            setSchedule(newSchedule);
+          };
+
+          const addSubject = () => {
+            if (newSubject.name.trim() && newSubject.teacher.trim()) {
+              setSubjects([...subjects, {
+                id: Date.now(),
+                name: newSubject.name.trim(),
+                teacher: newSubject.teacher.trim(),
+                group: newSubject.group.trim(),
+                color: newSubject.color,
+                constraints: {
+                  requiredDays: [],
+                  requiredSlots: [],
+                  requiredClassroom: null,
+                  preferredDays: [],
+                  preferredSlots: [],
+                  preferredClassroom: null,
+                  unavailableDays: [],
+                  unavailableSlots: [],
+                  maxPerDay: 2,
+                  canCombineWith: [],
+                }
+              }]);
+              setNewSubject({ name: '', teacher: '', group: '', color: '#3b82f6' });
+            }
+          };
+
+          const removeSubject = (id) => {
+            setSubjects(subjects.filter(s => s.id !== id));
+            const newSchedule = { ...schedule };
+            Object.keys(newSchedule).forEach(key => {
+              if (newSchedule[key] && newSchedule[key].subjectId === id) {
+                delete newSchedule[key];
+              }
+            });
+            setSchedule(newSchedule);
+          };
+
+          const updateSubjectConstraints = (subjectId, constraints) => {
+            setSubjects(subjects.map(s => 
+              s.id === subjectId ? { ...s, constraints } : s
+            ));
+          };
+
+          const getScheduleKey = (classroomId, day, slotId) => {
+            return `${classroomId}-${day}-${slotId}`;
+          };
+
+          const checkConflicts = (classroomId, day, slotId, subjectId) => {
+            const conflicts = [];
+            const warnings = [];
+            const subject = subjects.find(s => s.id === subjectId);
+            
+            if (!subject) return { conflicts, warnings };
+
+            Object.entries(schedule).forEach(([key, value]) => {
+              if (value.subjectId === subjectId && key !== getScheduleKey(classroomId, day, slotId)) {
+                const parts = key.split('-');
+                const schedDay = parts[1];
+                const schedSlot = parts[2];
+                if (schedDay === day && schedSlot === String(slotId)) {
+                  conflicts.push('Teacher already scheduled at this time');
+                }
+              }
+            });
+
+            if (subject.constraints.requiredDays.length > 0 && !subject.constraints.requiredDays.includes(day)) {
+              conflicts.push('Must be on: ' + subject.constraints.requiredDays.join(', '));
+            }
+            if (subject.constraints.requiredSlots.length > 0 && !subject.constraints.requiredSlots.includes(slotId)) {
+              const requiredTimes = subject.constraints.requiredSlots
+                .map(sid => timeSlots.find(ts => ts.id === sid))
+                .filter(Boolean)
+                .map(ts => ts.start + '-' + ts.end)
+                .join(', ');
+              conflicts.push('Must be at: ' + requiredTimes);
+            }
+            if (subject.constraints.requiredClassroom && subject.constraints.requiredClassroom !== classroomId) {
+              const reqRoom = classrooms.find(c => c.id === subject.constraints.requiredClassroom);
+              conflicts.push('Must be in: ' + (reqRoom ? reqRoom.name : 'specified room'));
+            }
+
+            if (subject.constraints.unavailableDays.includes(day)) {
+              conflicts.push('Subject unavailable on this day');
+            }
+            if (subject.constraints.unavailableSlots.includes(slotId)) {
+              conflicts.push('Subject unavailable at this time');
+            }
+
+            if (subject.constraints.preferredDays.length > 0 && !subject.constraints.preferredDays.includes(day)) {
+              warnings.push('Preferred days: ' + subject.constraints.preferredDays.join(', '));
+            }
+            if (subject.constraints.preferredSlots.length > 0 && !subject.constraints.preferredSlots.includes(slotId)) {
+              const preferredTimes = subject.constraints.preferredSlots
+                .map(sid => timeSlots.find(ts => ts.id === sid))
+                .filter(Boolean)
+                .map(ts => ts.start + '-' + ts.end)
+                .join(', ');
+              warnings.push('Preferred times: ' + preferredTimes);
+            }
+            if (subject.constraints.preferredClassroom && subject.constraints.preferredClassroom !== classroomId) {
+              const prefRoom = classrooms.find(c => c.id === subject.constraints.preferredClassroom);
+              warnings.push('Preferred room: ' + (prefRoom ? prefRoom.name : 'other room'));
+            }
+
+            const dayCount = Object.entries(schedule).filter(([key, value]) => {
+              const parts = key.split('-');
+              const schedDay = parts[1];
+              return schedDay === day && value.subjectId === subjectId;
+            }).length;
+            
+            if (dayCount >= subject.constraints.maxPerDay) {
+              conflicts.push('Max ' + subject.constraints.maxPerDay + ' classes per day exceeded');
+            }
+
+            return { conflicts, warnings };
+          };
+
+          const handleDrop = (classroomId, day, slotId) => {
+            if (!draggedSubject) return;
+            
+            const result = checkConflicts(classroomId, day, slotId, draggedSubject.id);
+            
+            if (result.conflicts.length === 0) {
+              const key = getScheduleKey(classroomId, day, slotId);
+              setSchedule({
+                ...schedule,
+                [key]: {
+                  subjectId: draggedSubject.id,
+                  subjectName: draggedSubject.name,
+                  teacher: draggedSubject.teacher,
+                  group: draggedSubject.group,
+                  color: draggedSubject.color
+                }
+              });
+            }
+            
+            setDraggedSubject(null);
+          };
+
+          const removeScheduleItem = (classroomId, day, slotId) => {
+            const key = getScheduleKey(classroomId, day, slotId);
+            const newSchedule = { ...schedule };
+            delete newSchedule[key];
+            setSchedule(newSchedule);
+          };
+
+          const exportToCSV = (data, filename) => {
+            const csv = data.map(row => row.map(cell => {
+              const cellStr = String(cell);
+              if (cellStr.includes(',') || cellStr.includes('"')) {
+                return '"' + cellStr.replace(/"/g, '""') + '"';
+              }
+              return cellStr;
+            }).join(',')).join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          const exportClassroomsCSV = () => {
+            const data = [
+              ['ID', 'Name'],
+              ...classrooms.map(c => [c.id, c.name])
+            ];
+            exportToCSV(data, 'classrooms.csv');
+          };
+
+          const exportTimeSlotsCSV = () => {
+            const data = [
+              ['ID', 'Start Time', 'End Time'],
+              ...timeSlots.map(t => [t.id, t.start, t.end])
+            ];
+            exportToCSV(data, 'time_slots.csv');
+          };
+
+          const exportSubjectsCSV = () => {
+            const data = [
+              ['ID', 'Subject', 'Teacher', 'Group/Class', 'Color', 'Required Days', 'Required Time Slots', 'Required Classroom', 
+               'Preferred Days', 'Preferred Time Slots', 'Preferred Classroom', 'Unavailable Days', 'Unavailable Time Slots', 
+               'Max Per Day', 'Can Combine With'],
+              ...subjects.map(s => [
+                s.id,
+                s.name,
+                s.teacher,
+                s.group,
+                s.color,
+                s.constraints.requiredDays.join(';'),
+                s.constraints.requiredSlots.join(';'),
+                s.constraints.requiredClassroom || '',
+                s.constraints.preferredDays.join(';'),
+                s.constraints.preferredSlots.join(';'),
+                s.constraints.preferredClassroom || '',
+                s.constraints.unavailableDays.join(';'),
+                s.constraints.unavailableSlots.join(';'),
+                s.constraints.maxPerDay,
+                s.constraints.canCombineWith.join(';')
+              ])
+            ];
+            exportToCSV(data, 'subjects_teachers.csv');
+          };
+
+          const exportScheduleCSV = () => {
+            const data = [
+              ['Classroom ID', 'Classroom', 'Day', 'Time Slot ID', 'Time', 'Subject ID', 'Subject', 'Teacher', 'Group/Class'],
+              ...Object.entries(schedule).map(([key, value]) => {
+                const parts = key.split('-');
+                const classroomId = parts[0];
+                const day = parts[1];
+                const slotId = parts[2];
+                const classroom = classrooms.find(c => c.id === parseInt(classroomId));
+                const slot = timeSlots.find(t => t.id === parseInt(slotId));
+                return [
+                  classroomId,
+                  classroom ? classroom.name : '',
+                  day,
+                  slotId,
+                  slot ? slot.start + '-' + slot.end : '',
+                  value.subjectId,
+                  value.subjectName,
+                  value.teacher,
+                  value.group || ''
+                ];
+              })
+            ];
+            exportToCSV(data, 'schedule.csv');
+          };
+
+          const importFromCSV = (file, type) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const text = e.target.result;
+              const rows = text.split('\n').map(row => {
+                const cells = [];
+                let cell = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < row.length; i++) {
+                  const char = row[i];
+                  if (char === '"') {
+                    inQuotes = !inQuotes;
+                  } else if (char === ',' && !inQuotes) {
+                    cells.push(cell.trim());
+                    cell = '';
+                  } else {
+                    cell += char;
+                  }
+                }
+                cells.push(cell.trim());
+                return cells;
+              }).filter(row => row.some(cell => cell));
+
+              if (rows.length < 2) return;
+
+              const data = rows.slice(1);
+
+              if (type === 'classrooms') {
+                const imported = data.map(row => ({
+                  id: parseInt(row[0]) || Date.now() + Math.random(),
+                  name: row[1] || 'Unnamed'
+                }));
+                setClassrooms(imported);
+              } else if (type === 'timeSlots') {
+                const imported = data.map(row => ({
+                  id: parseInt(row[0]) || Date.now() + Math.random(),
+                  start: row[1] || '08:00',
+                  end: row[2] || '09:00'
+                }));
+                setTimeSlots(imported);
+              } else if (type === 'subjects') {
+                const imported = data.map(row => ({
+                  id: parseInt(row[0]) || Date.now() + Math.random(),
+                  name: row[1] || 'Unnamed',
+                  teacher: row[2] || '',
+                  group: row[3] || '',
+                  color: row[4] || '#3b82f6',
+                  constraints: {
+                    requiredDays: row[5] ? row[5].split(';').filter(Boolean) : [],
+                    requiredSlots: row[6] ? row[6].split(';').map(Number).filter(Boolean) : [],
+                    requiredClassroom: row[7] ? parseInt(row[7]) : null,
+                    preferredDays: row[8] ? row[8].split(';').filter(Boolean) : [],
+                    preferredSlots: row[9] ? row[9].split(';').map(Number).filter(Boolean) : [],
+                    preferredClassroom: row[10] ? parseInt(row[10]) : null,
+                    unavailableDays: row[11] ? row[11].split(';').filter(Boolean) : [],
+                    unavailableSlots: row[12] ? row[12].split(';').map(Number).filter(Boolean) : [],
+                    maxPerDay: parseInt(row[13]) || 2,
+                    canCombineWith: row[14] ? row[14].split(';').map(Number).filter(Boolean) : []
+                  }
+                }));
+                setSubjects(imported);
+              }
+            };
+            reader.readAsText(file);
+          };
+
+          const exportSchedule = () => {
+            const data = {
+              classrooms,
+              timeSlots,
+              subjects,
+              schedule
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'school-schedule.json';
+            a.click();
+          };
+
+          const autoSchedule = () => {
+            const newSchedule = { ...schedule };
+            const unscheduledSubjects = [...subjects];
+            let successCount = 0;
+            let failCount = 0;
+
+            unscheduledSubjects.sort((a, b) => {
+              const aConstraints = a.constraints.requiredDays.length + 
+                                  a.constraints.requiredSlots.length + 
+                                  (a.constraints.requiredClassroom ? 1 : 0);
+              const bConstraints = b.constraints.requiredDays.length + 
+                                  b.constraints.requiredSlots.length + 
+                                  (b.constraints.requiredClassroom ? 1 : 0);
+              return bConstraints - aConstraints;
+            });
+
+            for (const subject of unscheduledSubjects) {
+              const currentScheduledCount = Object.values(newSchedule).filter(
+                item => item.subjectId === subject.id
+              ).length;
+
+              const attempts = Math.max(1, 3 - currentScheduledCount);
+              
+              for (let attempt = 0; attempt < attempts; attempt++) {
+                let scheduled = false;
+
+                const possibleClassrooms = subject.constraints.requiredClassroom
+                  ? [classrooms.find(c => c.id === subject.constraints.requiredClassroom)]
+                  : classrooms;
+
+                const possibleDays = subject.constraints.requiredDays.length > 0
+                  ? subject.constraints.requiredDays
+                  : DAYS.filter(day => !subject.constraints.unavailableDays.includes(day));
+
+                const possibleSlots = subject.constraints.requiredSlots.length > 0
+                  ? timeSlots.filter(slot => subject.constraints.requiredSlots.includes(slot.id))
+                  : timeSlots.filter(slot => !subject.constraints.unavailableSlots.includes(slot.id));
+
+                const daysToTry = subject.constraints.preferredDays.length > 0
+                  ? [...subject.constraints.preferredDays, ...possibleDays.filter(d => !subject.constraints.preferredDays.includes(d))]
+                  : possibleDays;
+
+                const slotsToTry = subject.constraints.preferredSlots.length > 0
+                  ? [...timeSlots.filter(s => subject.constraints.preferredSlots.includes(s.id)), 
+                     ...possibleSlots.filter(s => !subject.constraints.preferredSlots.includes(s.id))]
+                  : possibleSlots;
+
+                for (const classroom of possibleClassrooms) {
+                  if (!classroom) continue;
+                  
+                  for (const day of daysToTry) {
+                    for (const slot of slotsToTry) {
+                      const key = getScheduleKey(classroom.id, day, slot.id);
+                      
+                      if (newSchedule[key]) continue;
+
+                      const result = checkConflicts(classroom.id, day, slot.id, subject.id);
+                      
+                      if (result.conflicts.length === 0) {
+                        newSchedule[key] = {
+                          subjectId: subject.id,
+                          subjectName: subject.name,
+                          teacher: subject.teacher,
+                          group: subject.group,
+                          color: subject.color
+                        };
+                        scheduled = true;
+                        successCount++;
+                        break;
+                      }
+                    }
+                    if (scheduled) break;
+                  }
+                  if (scheduled) break;
+                }
+
+                if (!scheduled) {
+                  failCount++;
+                  break;
+                }
+              }
+            }
+
+            setSchedule(newSchedule);
+            return { successCount, failCount };
+          };
+
+          const clearSchedule = () => {
+            if (window.confirm('Are you sure you want to clear the entire schedule?')) {
+              setSchedule({});
+            }
+          };
+
+          const Icon = ({ name, ...props }) => {
+            const LucideIcon = lucide[name];
+            return React.createElement(LucideIcon, props);
+          };
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+              <div className="max-w-7xl mx-auto">
+                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                  <h1 className="text-3xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+                    <Icon name="Calendar" className="text-indigo-600" />
+                    School Schedule Coordinator
+                  </h1>
+                  <p className="text-gray-600">Design and manage your school timetable with drag-and-drop simplicity</p>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-lg mb-6">
+                  <div className="border-b">
+                    <div className="flex gap-2 p-2">
+                      <button
+                        onClick={() => setActiveTab('schedule')}
+                        className={'px-4 py-2 rounded-t font-medium transition ' + (activeTab === 'schedule' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
+                      >
+                        Schedule Grid
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('subjects')}
+                        className={'px-4 py-2 rounded-t font-medium transition ' + (activeTab === 'subjects' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
+                      >
+                        Subjects & Teachers
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('settings')}
+                        className={'px-4 py-2 rounded-t font-medium transition ' + (activeTab === 'settings' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
+                      >
+                        Classrooms & Times
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-6">
+                    {activeTab === 'schedule' && (
+                      <div>
+                        <div className="mb-6 flex justify-between items-center flex-wrap gap-3">
+                          <h2 className="text-xl font-bold text-gray-800">Weekly Schedule</h2>
+                          <div className="flex gap-2 flex-wrap">
+                            <button
+                              onClick={() => {
+                                const result = autoSchedule();
+                                alert(`Auto-scheduling complete!\n\nSuccessfully scheduled: ${result.successCount} classes\nCould not schedule: ${result.failCount} classes\n\nNote: Some subjects may need manual adjustment for optimal placement.`);
+                              }}
+                              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition"
+                            >
+                              <Icon name="Calendar" size={18} />
+                              Auto Schedule
+                            </button>
+                            <button
+                              onClick={clearSchedule}
+                              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                            >
+                              <Icon name="Trash2" size={18} />
+                              Clear All
+                            </button>
+                            <button
+                              onClick={exportScheduleCSV}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                            >
+                              <Icon name="FileSpreadsheet" size={18} />
+                              Export CSV
+                            </button>
+                            <button
+                              onClick={exportSchedule}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                            >
+                              <Icon name="Download" size={18} />
+                              Export JSON
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
+                          <h3 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                            <Icon name="Calendar" size={18} />
+                            Auto-Scheduling Tips
+                          </h3>
+                          <ul className="text-sm text-purple-800 space-y-1">
+                            <li>• The auto-scheduler prioritizes subjects with more constraints</li>
+                            <li>• It respects all hard constraints (required conditions, unavailable times)</li>
+                            <li>• Preferred conditions are considered but may be overridden</li>
+                            <li>• You can run auto-schedule multiple times or manually adjust</li>
+                            <li>• Use "Clear All" to start fresh if needed</li>
+                          </ul>
+                        </div>
+
+                        <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                          <h3 className="font-semibold text-indigo-900 mb-3">Available Subjects</h3>
+                          <div className="flex flex-wrap gap-2">
+                            {subjects.map(subject => (
+                              <div
+                                key={subject.id}
+                                draggable
+                                onDragStart={() => setDraggedSubject(subject)}
+                                onDragEnd={() => setDraggedSubject(null)}
+                                className="px-4 py-2 rounded-lg text-white font-medium cursor-move shadow-md hover:shadow-lg transition"
+                                style={{ backgroundColor: subject.color }}
+                              >
+                                <div className="text-sm font-semibold">{subject.name}</div>
+                                <div className="text-xs opacity-90">{subject.teacher}</div>
+                                {subject.group && <div className="text-xs opacity-75">{subject.group}</div>}
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-sm text-indigo-700 mt-3">Drag subjects onto the schedule grid below</p>
+                        </div>
+
+                        {classrooms.map(classroom => (
+                          <div key={classroom.id} className="mb-8">
+                            <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full bg-indigo-600"></div>
+                              {classroom.name}
+                            </h3>
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse">
+                                <thead>
+                                  <tr>
+                                    <th className="border border-gray-300 bg-gray-100 p-2 text-sm font-semibold text-gray-700 w-32">
+                                      Time
+                                    </th>
+                                    {DAYS.map(day => (
+                                      <th key={day} className="border border-gray-300 bg-gray-100 p-2 text-sm font-semibold text-gray-700">
+                                        {day}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {timeSlots.map(slot => (
+                                    <tr key={slot.id}>
+                                      <td className="border border-gray-300 bg-gray-50 p-2 text-sm font-medium text-gray-700 text-center">
+                                        {slot.start} - {slot.end}
+                                      </td>
+                                      {DAYS.map(day => {
+                                        const key = getScheduleKey(classroom.id, day, slot.id);
+                                        const scheduleItem = schedule[key];
+                                        const result = draggedSubject ? checkConflicts(classroom.id, day, slot.id, draggedSubject.id) : { conflicts: [], warnings: [] };
+
+                                        return (
+                                          <td
+                                            key={day}
+                                            className={'border border-gray-300 p-2 text-sm min-h-20 relative ' + (result.conflicts.length > 0 ? 'bg-red-50' : result.warnings.length > 0 ? 'bg-yellow-50' : 'bg-white hover:bg-gray-50')}
+                                            onDragOver={(e) => {
+                                              e.preventDefault();
+                                              if (result.conflicts.length === 0) {
+                                                e.currentTarget.classList.add('bg-blue-50');
+                                              }
+                                            }}
+                                            onDragLeave={(e) => {
+                                              e.currentTarget.classList.remove('bg-blue-50');
+                                            }}
+                                            onDrop={(e) => {
+                                              e.preventDefault();
+                                              e.currentTarget.classList.remove('bg-blue-50');
+                                              handleDrop(classroom.id, day, slot.id);
+                                            }}
+                                          >
+                                            {scheduleItem ? (
+                                              <div
+                                                className="p-2 rounded text-white relative"
+                                                style={{ backgroundColor: scheduleItem.color }}
+                                              >
+                                                <button
+                                                  onClick={() => removeScheduleItem(classroom.id, day, slot.id)}
+                                                  className="absolute top-1 right-1 bg-white bg-opacity-30 hover:bg-opacity-50 rounded p-1"
+                                                >
+                                                  <Icon name="Trash2" size={12} />
+                                                </button>
+                                                <div className="font-semibold text-sm">{scheduleItem.subjectName}</div>
+                                                <div className="text-xs opacity-90">{scheduleItem.teacher}</div>
+                                                {scheduleItem.group && <div className="text-xs opacity-75">{scheduleItem.group}</div>}
+                                              </div>
+                                            ) : result.conflicts.length > 0 && draggedSubject ? (
+                                              <div className="text-xs text-red-600 p-1">
+                                                <Icon name="AlertCircle" size={14} className="inline mr-1" />
+                                                {result.conflicts[0]}
+                                              </div>
+                                            ) : result.warnings.length > 0 && draggedSubject ? (
+                                              <div className="text-xs text-yellow-600 p-1">
+                                                ⚠️ Not preferred
+                                              </div>
+                                            ) : null}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {activeTab === 'subjects' && (
+                      <div>
+                        <div className="mb-6 flex justify-between items-center">
+                          <h2 className="text-xl font-bold text-gray-800">Subjects & Teachers</h2>
+                          <div className="flex gap-2">
+                            <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition cursor-pointer">
+                              <Icon name="Upload" size={18} />
+                              Import CSV
+                              <input
+                                type="file"
+                                accept=".csv"
+                                onChange={(e) => e.target.files[0] && importFromCSV(e.target.files[0], 'subjects')}
+                                className="hidden"
+                              />
+                            </label>
+                            <button
+                              onClick={exportSubjectsCSV}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                            >
+                              <Icon name="Download" size={18} />
+                              Export CSV
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                          <h3 className="font-semibold text-gray-700 mb-3">Add New Subject</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                            <input
+                              type="text"
+                              placeholder="Subject name"
+                              value={newSubject.name}
+                              onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
+                              className="border border-gray-300 rounded px-3 py-2"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Teacher name"
+                              value={newSubject.teacher}
+                              onChange={(e) => setNewSubject({ ...newSubject, teacher: e.target.value })}
+                              className="border border-gray-300 rounded px-3 py-2"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Group/Class (optional)"
+                              value={newSubject.group}
+                              onChange={(e) => setNewSubject({ ...newSubject, group: e.target.value })}
+                              className="border border-gray-300 rounded px-3 py-2"
+                            />
+                            <input
+                              type="color"
+                              value={newSubject.color}
+                              onChange={(e) => setNewSubject({ ...newSubject, color: e.target.value })}
+                              className="border border-gray-300 rounded px-3 py-2 h-10"
+                            />
+                            <button
+                              onClick={addSubject}
+                              className="bg-indigo-600 text-white rounded px-4 py-2 hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                            >
+                              <Icon name="Plus" size={18} />
+                              Add Subject
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          {subjects.map(subject => (
+                            <div key={subject.id} className="border border-gray-300 rounded-lg p-4">
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-3">
+                                  <div 
+                                    className="w-8 h-8 rounded"
+                                    style={{ backgroundColor: subject.color }}
+                                  ></div>
+                                  <div>
+                                    <h4 className="font-bold text-gray-800">{subject.name}</h4>
+                                    <p className="text-sm text-gray-600">{subject.teacher}</p>
+                                    {subject.group && <p className="text-xs text-gray-500">{subject.group}</p>}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => removeSubject(subject.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  <Icon name="Trash2" size={18} />
+                                </button>
+                              </div>
+
+                              <div className="bg-gray-50 rounded p-3">
+                                <button
+                                  onClick={() => setEditingSubject(editingSubject === subject.id ? null : subject.id)}
+                                  className="text-sm text-indigo-600 hover:text-indigo-800 font-medium mb-2"
+                                >
+                                  {editingSubject === subject.id ? '− Hide Constraints' : '+ Edit Constraints & Settings'}
+                                </button>
+
+                                {editingSubject === subject.id && (
+                                  <div className="space-y-4 mt-3">
+                                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                                      <h5 className="font-semibold text-red-900 mb-2 text-sm">Required Conditions (Must be met)</h5>
+                                      
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Required days:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {DAYS.map(day => (
+                                              <label key={day} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.requiredDays.includes(day)}
+                                                  onChange={(e) => {
+                                                    const days = e.target.checked
+                                                      ? [...subject.constraints.requiredDays, day]
+                                                      : subject.constraints.requiredDays.filter(d => d !== day);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      requiredDays: days
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{day}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Required time slots:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {timeSlots.map(slot => (
+                                              <label key={slot.id} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.requiredSlots.includes(slot.id)}
+                                                  onChange={(e) => {
+                                                    const slots = e.target.checked
+                                                      ? [...subject.constraints.requiredSlots, slot.id]
+                                                      : subject.constraints.requiredSlots.filter(s => s !== slot.id);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      requiredSlots: slots
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{slot.start}-{slot.end}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Required classroom:
+                                          </label>
+                                          <select
+                                            value={subject.constraints.requiredClassroom || ''}
+                                            onChange={(e) => updateSubjectConstraints(subject.id, {
+                                              ...subject.constraints,
+                                              requiredClassroom: e.target.value ? parseInt(e.target.value) : null
+                                            })}
+                                            className="border border-gray-300 rounded px-3 py-1 text-sm"
+                                          >
+                                            <option value="">None (any classroom)</option>
+                                            {classrooms.map(room => (
+                                              <option key={room.id} value={room.id}>{room.name}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
+                                      <h5 className="font-semibold text-yellow-900 mb-2 text-sm">Preferred Conditions (Warnings if not met)</h5>
+                                      
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Preferred days:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {DAYS.map(day => (
+                                              <label key={day} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.preferredDays.includes(day)}
+                                                  onChange={(e) => {
+                                                    const days = e.target.checked
+                                                      ? [...subject.constraints.preferredDays, day]
+                                                      : subject.constraints.preferredDays.filter(d => d !== day);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      preferredDays: days
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{day}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Preferred time slots:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {timeSlots.map(slot => (
+                                              <label key={slot.id} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.preferredSlots.includes(slot.id)}
+                                                  onChange={(e) => {
+                                                    const slots = e.target.checked
+                                                      ? [...subject.constraints.preferredSlots, slot.id]
+                                                      : subject.constraints.preferredSlots.filter(s => s !== slot.id);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      preferredSlots: slots
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{slot.start}-{slot.end}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Preferred classroom:
+                                          </label>
+                                          <select
+                                            value={subject.constraints.preferredClassroom || ''}
+                                            onChange={(e) => updateSubjectConstraints(subject.id, {
+                                              ...subject.constraints,
+                                              preferredClassroom: e.target.value ? parseInt(e.target.value) : null
+                                            })}
+                                            className="border border-gray-300 rounded px-3 py-1 text-sm"
+                                          >
+                                            <option value="">None</option>
+                                            {classrooms.map(room => (
+                                              <option key={room.id} value={room.id}>{room.name}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                                      <h5 className="font-semibold text-blue-900 mb-2 text-sm">Other Settings</h5>
+                                      
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Unavailable days:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {DAYS.map(day => (
+                                              <label key={day} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.unavailableDays.includes(day)}
+                                                  onChange={(e) => {
+                                                    const days = e.target.checked
+                                                      ? [...subject.constraints.unavailableDays, day]
+                                                      : subject.constraints.unavailableDays.filter(d => d !== day);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      unavailableDays: days
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{day}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Unavailable time slots:
+                                          </label>
+                                          <div className="flex flex-wrap gap-2">
+                                            {timeSlots.map(slot => (
+                                              <label key={slot.id} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.unavailableSlots.includes(slot.id)}
+                                                  onChange={(e) => {
+                                                    const slots = e.target.checked
+                                                      ? [...subject.constraints.unavailableSlots, slot.id]
+                                                      : subject.constraints.unavailableSlots.filter(s => s !== slot.id);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      unavailableSlots: slots
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{slot.start}-{slot.end}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Max classes per day:
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="10"
+                                            value={subject.constraints.maxPerDay}
+                                            onChange={(e) => updateSubjectConstraints(subject.id, {
+                                              ...subject.constraints,
+                                              maxPerDay: parseInt(e.target.value) || 1
+                                            })}
+                                            className="border border-gray-300 rounded px-3 py-1 w-20"
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="text-sm font-medium text-gray-700 block mb-1">
+                                            Can combine with other groups/classes:
+                                          </label>
+                                          <div className="text-xs text-gray-600 mb-2">
+                                            Select subjects that can be scheduled at the same time
+                                          </div>
+                                          <div className="flex flex-wrap gap-2">
+                                            {subjects.filter(s => s.id !== subject.id).map(otherSubject => (
+                                              <label key={otherSubject.id} className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={subject.constraints.canCombineWith.includes(otherSubject.id)}
+                                                  onChange={(e) => {
+                                                    const combined = e.target.checked
+                                                      ? [...subject.constraints.canCombineWith, otherSubject.id]
+                                                      : subject.constraints.canCombineWith.filter(id => id !== otherSubject.id);
+                                                    updateSubjectConstraints(subject.id, {
+                                                      ...subject.constraints,
+                                                      canCombineWith: combined
+                                                    });
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-sm">{otherSubject.name} ({otherSubject.group || otherSubject.teacher})</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                          {subjects.filter(s => s.id !== subject.id).length === 0 && (
+                                            <p className="text-sm text-gray-500 italic">No other subjects available</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'settings' && (
+                      <div>
+                        <div className="mb-8">
+                          <div className="mb-4 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-800">Classrooms</h2>
+                            <div className="flex gap-2">
+                              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition cursor-pointer text-sm">
+                                <Icon name="Upload" size={16} />
+                                Import CSV
+                                <input
+                                  type="file"
+                                  accept=".csv"
+                                  onChange={(e) => e.target.files[0] && importFromCSV(e.target.files[0], 'classrooms')}
+                                  className="hidden"
+                                />
+                              </label>
+                              <button
+                                onClick={exportClassroomsCSV}
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+                              >
+                                <Icon name="Download" size={16} />
+                                Export CSV
+                              </button>
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Classroom name (e.g., Room 103)"
+                                value={newClassroom}
+                                onChange={(e) => setNewClassroom(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && addClassroom()}
+                                className="flex-1 border border-gray-300 rounded px-3 py-2"
+                              />
+                              <button
+                                onClick={addClassroom}
+                                className="bg-indigo-600 text-white rounded px-4 py-2 hover:bg-indigo-700 transition flex items-center gap-2"
+                              >
+                                <Icon name="Plus" size={18} />
+                                Add
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {classrooms.map(classroom => (
+                              <div key={classroom.id} className="flex items-center justify-between bg-white border border-gray-300 rounded p-3">
+                                <span className="font-medium text-gray-800">{classroom.name}</span>
+                                <button
+                                  onClick={() => removeClassroom(classroom.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  <Icon name="Trash2" size={18} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-4 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-800">Time Slots</h2>
+                            <div className="flex gap-2">
+                              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition cursor-pointer text-sm">
+                                <Icon name="Upload" size={16} />
+                                Import CSV
+                                <input
+                                  type="file"
+                                  accept=".csv"
+                                  onChange={(e) => e.target.files[0] && importFromCSV(e.target.files[0], 'timeSlots')}
+                                  className="hidden"
+                                />
+                              </label>
+                              <button
+                                onClick={exportTimeSlotsCSV}
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+                              >
+                                <Icon name="Download" size={16} />
+                                Export CSV
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mb-4">
+                            <button
+                              onClick={addTimeSlot}
+                              className="bg-indigo-600 text-white rounded px-4 py-2 hover:bg-indigo-700 transition flex items-center gap-2"
+                            >
+                              <Icon name="Plus" size={18} />
+                              Add Time Slot
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {timeSlots.map(slot => (
+                              <div key={slot.id} className="flex items-center justify-between bg-white border border-gray-300 rounded p-3">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-medium text-gray-800">
+                                    {slot.start} - {slot.end}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => removeTimeSlot(slot.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  <Icon name="Trash2" size={18} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<SchoolScheduler />, document.getElementById('root'));
+    </script>
+</body>
+</html>
