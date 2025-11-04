@@ -465,6 +465,162 @@
             reader.readAsText(file);
           };
 
+          const importScheduleFromCSV = (file) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              let text = e.target.result;
+              
+              // Normalize line endings
+              text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+              
+              const rows = text.split('\n').map(row => {
+                if (!row.trim()) return [];
+                
+                const cells = [];
+                let cell = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < row.length; i++) {
+                  const char = row[i];
+                  if (char === '"') {
+                    if (inQuotes && row[i + 1] === '"') {
+                      cell += '"';
+                      i++;
+                    } else {
+                      inQuotes = !inQuotes;
+                    }
+                  } else if (char === ',' && !inQuotes) {
+                    cells.push(cell.trim());
+                    cell = '';
+                  } else {
+                    cell += char;
+                  }
+                }
+                cells.push(cell.trim());
+                return cells;
+              }).filter(row => row.length > 0 && row.some(cell => cell));
+
+              if (rows.length < 2) {
+                alert('CSV file is empty or invalid');
+                return;
+              }
+
+              const headers = rows[0];
+              const data = rows.slice(1);
+
+              // Expected format: Classroom,Day,Time Slot,Subject,Teacher,Group/Class
+              // OR: Classroom ID,Classroom,Day,Time Slot ID,Time,Subject ID,Subject,Teacher,Group/Class
+              
+              const newSchedule = {};
+              let importedCount = 0;
+              let skippedCount = 0;
+
+              data.forEach(row => {
+                // Support both simple and detailed formats
+                let classroomName, day, timeSlot, subjectName, teacher, group;
+                
+                if (row.length >= 6) {
+                  // Simple format: Classroom,Day,Time Slot,Subject,Teacher,Group/Class
+                  if (headers[0] === 'Classroom' && headers[1] === 'Day') {
+                    classroomName = row[0];
+                    day = row[1];
+                    timeSlot = row[2]; // e.g., "08:00-09:00"
+                    subjectName = row[3];
+                    teacher = row[4];
+                    group = row[5] || '';
+                  } 
+                  // Detailed format (from export): Classroom ID,Classroom,Day,Time Slot ID,Time,Subject ID,Subject,Teacher,Group/Class
+                  else if (row.length >= 9) {
+                    classroomName = row[1];
+                    day = row[2];
+                    timeSlot = row[4];
+                    subjectName = row[6];
+                    teacher = row[7];
+                    group = row[8] || '';
+                  }
+                }
+
+                if (!classroomName || !day || !timeSlot || !subjectName) {
+                  skippedCount++;
+                  return;
+                }
+
+                // Find matching classroom
+                const classroom = classrooms.find(c => 
+                  c.name.toLowerCase() === classroomName.toLowerCase()
+                );
+
+                if (!classroom) {
+                  skippedCount++;
+                  console.warn('Classroom not found:', classroomName);
+                  return;
+                }
+
+                // Find matching time slot
+                const slot = timeSlots.find(ts => {
+                  const slotTime = ts.start + '-' + ts.end;
+                  return slotTime === timeSlot || ts.start === timeSlot.split('-')[0];
+                });
+
+                if (!slot) {
+                  skippedCount++;
+                  console.warn('Time slot not found:', timeSlot);
+                  return;
+                }
+
+                // Find or create subject
+                let subject = subjects.find(s => 
+                  s.name.toLowerCase() === subjectName.toLowerCase() && 
+                  s.teacher.toLowerCase() === teacher.toLowerCase()
+                );
+
+                if (!subject) {
+                  // Auto-create subject if it doesn't exist
+                  const newSubjectId = Date.now() + Math.random();
+                  const newSubject = {
+                    id: newSubjectId,
+                    name: subjectName,
+                    teacher: teacher,
+                    group: group,
+                    color: '#' + Math.floor(Math.random()*16777215).toString(16),
+                    constraints: {
+                      requiredDays: [],
+                      requiredSlots: [],
+                      requiredClassroom: null,
+                      preferredDays: [],
+                      preferredSlots: [],
+                      preferredClassroom: null,
+                      unavailableDays: [],
+                      unavailableSlots: [],
+                      maxPerDay: 2,
+                      daysPerWeek: 1,
+                      canCombineWith: [],
+                    }
+                  };
+                  subjects.push(newSubject);
+                  subject = newSubject;
+                }
+
+                // Add to schedule
+                const key = getScheduleKey(classroom.id, day, slot.id);
+                newSchedule[key] = {
+                  subjectId: subject.id,
+                  subjectName: subject.name,
+                  teacher: subject.teacher,
+                  group: subject.group || group,
+                  color: subject.color
+                };
+                importedCount++;
+              });
+
+              setSchedule(newSchedule);
+              setSubjects([...subjects]); // Update subjects state if we added any
+              
+              alert(`Schedule imported successfully!\n\nImported: ${importedCount} classes\nSkipped: ${skippedCount} entries\n\n${skippedCount > 0 ? 'Some entries were skipped. Check that classroom names and time slots match your settings.' : ''}`);
+            };
+            reader.readAsText(file);
+          };
+
           const exportSchedule = () => {
             const data = {
               classrooms,
@@ -630,6 +786,16 @@
                             </div>
                           </div>
                           <div className="flex gap-2 flex-wrap">
+                            <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition cursor-pointer">
+                              <Icon name="Upload" size={18} />
+                              Import Schedule CSV
+                              <input
+                                type="file"
+                                accept=".csv"
+                                onChange={(e) => e.target.files[0] && importScheduleFromCSV(e.target.files[0])}
+                                className="hidden"
+                              />
+                            </label>
                             <button
                               onClick={() => {
                                 const result = autoSchedule();
@@ -675,6 +841,29 @@
                             <li>• Preferred conditions are considered but may be overridden</li>
                             <li>• You can run auto-schedule multiple times or manually adjust</li>
                             <li>• Use "Clear All" to start fresh if needed</li>
+                          </ul>
+                        </div>
+
+                        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                            <Icon name="Upload" size={18} />
+                            Import Schedule from Google Sheets
+                          </h3>
+                          <p className="text-sm text-blue-800 mb-2">
+                            You can import a complete schedule from a CSV file. Create a Google Sheet with this format:
+                          </p>
+                          <div className="bg-white rounded p-2 font-mono text-xs overflow-x-auto mb-2">
+                            <div className="font-bold">Classroom,Day,Time Slot,Subject,Teacher,Group/Class</div>
+                            <div>Room 101,Monday,08:00-09:00,Mathematics,Mr. Smith,Grade 10A</div>
+                            <div>Room 102,Monday,08:00-09:00,English,Ms. Johnson,Grade 10B</div>
+                            <div>Room 101,Tuesday,09:00-10:00,Physics,Dr. Brown,Grade 11</div>
+                          </div>
+                          <ul className="text-sm text-blue-800 space-y-1">
+                            <li>• <strong>Classroom</strong> must match existing classroom names exactly</li>
+                            <li>• <strong>Day</strong> must be: Monday, Tuesday, Wednesday, Thursday, or Friday</li>
+                            <li>• <strong>Time Slot</strong> format: 08:00-09:00 (must match your time slots)</li>
+                            <li>• Subjects will be auto-created if they don't exist</li>
+                            <li>• Export as CSV from Google Sheets: File → Download → CSV</li>
                           </ul>
                         </div>
 
