@@ -28,9 +28,29 @@
     </script>
     
     <script type="text/babel">
-        const { useState } = React;
+        const { useState, useEffect } = React;
 
         const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+        // Load saved data from localStorage
+        const loadFromLocalStorage = (key, defaultValue) => {
+          try {
+            const saved = localStorage.getItem(key);
+            return saved ? JSON.parse(saved) : defaultValue;
+          } catch (error) {
+            console.error('Error loading from localStorage:', error);
+            return defaultValue;
+          }
+        };
+
+        // Save data to localStorage
+        const saveToLocalStorage = (key, value) => {
+          try {
+            localStorage.setItem(key, JSON.stringify(value));
+          } catch (error) {
+            console.error('Error saving to localStorage:', error);
+          }
+        };
 
         // Icon component
         const Icon = ({ name, size = 24, className = '' }) => {
@@ -45,42 +65,48 @@
         };
 
         function SchoolScheduler() {
-          const [classrooms, setClassrooms] = useState([
-            { id: 1, name: 'Room 101' },
-            { id: 2, name: 'Room 102' }
-          ]);
+          const [classrooms, setClassrooms] = useState(() => 
+            loadFromLocalStorage('classrooms', [
+              { id: 1, name: 'Room 101' },
+              { id: 2, name: 'Room 102' }
+            ])
+          );
           
-          const [timeSlots, setTimeSlots] = useState([
-            { id: 1, start: '08:00', end: '09:00' },
-            { id: 2, start: '09:00', end: '10:00' },
-            { id: 3, start: '10:00', end: '11:00' },
-            { id: 4, start: '11:00', end: '12:00' }
-          ]);
+          const [timeSlots, setTimeSlots] = useState(() => 
+            loadFromLocalStorage('timeSlots', [
+              { id: 1, start: '08:00', end: '09:00' },
+              { id: 2, start: '09:00', end: '10:00' },
+              { id: 3, start: '10:00', end: '11:00' },
+              { id: 4, start: '11:00', end: '12:00' }
+            ])
+          );
           
-          const [subjects, setSubjects] = useState([
-            { 
-              id: 1, 
-              name: 'Mathematics', 
-              teacher: 'Mr. Smith',
-              group: 'Grade 10A',
-              color: '#3b82f6',
-              constraints: {
-                requiredDays: [],
-                requiredSlots: [],
-                requiredClassroom: null,
-                preferredDays: [],
-                preferredSlots: [],
-                preferredClassroom: null,
-                unavailableDays: [],
-                unavailableSlots: [],
-                maxPerDay: 2,
-                daysPerWeek: 1,
-                canCombineWith: [],
+          const [subjects, setSubjects] = useState(() => 
+            loadFromLocalStorage('subjects', [
+              { 
+                id: 1, 
+                name: 'Mathematics', 
+                teacher: 'Mr. Smith',
+                group: 'Grade 10A',
+                color: '#3b82f6',
+                constraints: {
+                  requiredDays: [],
+                  requiredSlots: [],
+                  requiredClassroom: null,
+                  preferredDays: [],
+                  preferredSlots: [],
+                  preferredClassroom: null,
+                  unavailableDays: [],
+                  unavailableSlots: [],
+                  maxPerDay: 2,
+                  daysPerWeek: 1,
+                  canCombineWith: [],
+                }
               }
-            }
-          ]);
+            ])
+          );
           
-          const [schedule, setSchedule] = useState({});
+          const [schedule, setSchedule] = useState(() => loadFromLocalStorage('schedule', {}));
           const [activeTab, setActiveTab] = useState('schedule');
           const [newClassroom, setNewClassroom] = useState('');
           const [newSubject, setNewSubject] = useState({ 
@@ -94,6 +120,23 @@
           const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'kanban'
           const [editingTimeSlot, setEditingTimeSlot] = useState(null);
           const [newTimeSlot, setNewTimeSlot] = useState({ start: '08:00', end: '09:00' });
+
+          // Auto-save to localStorage whenever data changes
+          useEffect(() => {
+            saveToLocalStorage('classrooms', classrooms);
+          }, [classrooms]);
+
+          useEffect(() => {
+            saveToLocalStorage('timeSlots', timeSlots);
+          }, [timeSlots]);
+
+          useEffect(() => {
+            saveToLocalStorage('subjects', subjects);
+          }, [subjects]);
+
+          useEffect(() => {
+            saveToLocalStorage('schedule', schedule);
+          }, [schedule]);
 
           const addClassroom = () => {
             if (newClassroom.trim()) {
@@ -739,6 +782,43 @@
             }
           };
 
+          const clearAllData = () => {
+            if (window.confirm('⚠️ WARNING: This will delete ALL data including classrooms, time slots, subjects, and the schedule.\n\nThis action cannot be undone. Are you sure?')) {
+              if (window.confirm('Final confirmation: Delete everything?')) {
+                localStorage.clear();
+                setClassrooms([{ id: 1, name: 'Room 101' }, { id: 2, name: 'Room 102' }]);
+                setTimeSlots([
+                  { id: 1, start: '08:00', end: '09:00' },
+                  { id: 2, start: '09:00', end: '10:00' },
+                  { id: 3, start: '10:00', end: '11:00' },
+                  { id: 4, start: '11:00', end: '12:00' }
+                ]);
+                setSubjects([{
+                  id: 1, 
+                  name: 'Mathematics', 
+                  teacher: 'Mr. Smith',
+                  group: 'Grade 10A',
+                  color: '#3b82f6',
+                  constraints: {
+                    requiredDays: [],
+                    requiredSlots: [],
+                    requiredClassroom: null,
+                    preferredDays: [],
+                    preferredSlots: [],
+                    preferredClassroom: null,
+                    unavailableDays: [],
+                    unavailableSlots: [],
+                    maxPerDay: 2,
+                    daysPerWeek: 1,
+                    canCombineWith: [],
+                  }
+                }]);
+                setSchedule({});
+                alert('All data has been cleared. Starting fresh!');
+              }
+            }
+          };
+
           return (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
               <div className="max-w-7xl mx-auto">
@@ -748,6 +828,18 @@
                     School Schedule Coordinator
                   </h1>
                   <p className="text-gray-600">Design and manage your school timetable with drag-and-drop simplicity</p>
+                  <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 px-3 py-1 rounded-full">
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                      Auto-save enabled - Your work is automatically saved
+                    </div>
+                    <button
+                      onClick={clearAllData}
+                      className="text-sm text-red-600 hover:text-red-800 underline"
+                    >
+                      Clear All Data
+                    </button>
+                  </div>
                 </div>
 
                 <div className="bg-white rounded-lg shadow-lg mb-6">
